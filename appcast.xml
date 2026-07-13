@@ -12,8 +12,8 @@
        sparkle:edSignature="NTJlNvBJjk2BGyIyQ4/5tWiF1QoyERjrxabz1hDYvx7RXNe9/JLW9s5HmtrTySZvzhirTU1aye1cgGKOUCeUDw=="
        sparkle:os="macos" />
       <enclosure url="https://github.com/edde746/plezy/releases/download/2.9.1/plezy-windows-installer.exe"
-       length="128933451" type="application/octet-stream"
-       sparkle:edSignature="5odITkWY+J/DmRo2amgOLvGwCPwvKdPeSVx/xfdxezH+n+ImRScFd5KcmrmTXUbuwDgUZfm+QFb4MK35qD/jAg=="
+       length="128924346" type="application/octet-stream"
+       sparkle:edSignature="o80z5MozV7UydGrcBnMC+tpJRFoTjH000KW+4VIjLf6Owz5PE6Uf1dXOWiJc3L81ePlifcGnuHEbkzk5s4y0Bw=="
        sparkle:installerArguments="/SILENT /SP-"
        sparkle:os="windows" />
     </item>
