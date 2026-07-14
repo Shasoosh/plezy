@@ -1,0 +1,125 @@
+name: Auto-sync with upstream
+
+# Runs daily. When upstream releases a new version:
+#   1. Rebases shasoosh/fix-external-subtitles onto the new tag
+#   2. Force-pushes the branch
+#   3. Creates <version>-subtitle-fix tag → triggers the build workflow
+#
+# If rebase conflicts, opens a GitHub issue with manual instructions instead.
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 08:00 UTC every day
+  workflow_dispatch:        # can also be triggered manually
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "Shasoosh"
+          git config user.email "shasoosh@gmail.com"
+
+      - name: Fetch upstream tags and fix branch
+        run: |
+          git remote add upstream https://github.com/edde746/plezy.git
+          git fetch upstream --tags --no-recurse-submodules
+          git fetch origin shasoosh/fix-external-subtitles
+
+      - name: Determine if a new upstream release exists
+        id: check
+        run: |
+          # Latest plain semver tag from upstream (e.g. 2.10.0, not 2.9.1-subtitle-fix)
+          LATEST=$(git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          CUSTOM_TAG="${LATEST}-subtitle-fix"
+
+          echo "upstream_tag=$LATEST"   >> $GITHUB_OUTPUT
+          echo "custom_tag=$CUSTOM_TAG" >> $GITHUB_OUTPUT
+
+          if git rev-parse "$CUSTOM_TAG" >/dev/null 2>&1; then
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "Already synced to $LATEST — nothing to do."
+          else
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "New upstream release: $LATEST → will create $CUSTOM_TAG"
+          fi
+
+      - name: Rebase fix branch onto new upstream tag
+        if: steps.check.outputs.needs_update == 'true'
+        id: rebase
+        run: |
+          UPSTREAM_TAG="${{ steps.check.outputs.upstream_tag }}"
+
+          git checkout -b work origin/shasoosh/fix-external-subtitles
+
+          # Find the commit our branch diverged from upstream
+          # (the last upstream commit that is an ancestor of our branch)
+          OLD_BASE=$(git merge-base HEAD upstream/main)
+          echo "Old base commit: $OLD_BASE  ($(git describe --tags $OLD_BASE 2>/dev/null || echo 'no tag'))"
+          echo "Rebasing onto: $UPSTREAM_TAG"
+
+          if git rebase --onto "$UPSTREAM_TAG" "$OLD_BASE" HEAD; then
+            echo "result=success" >> $GITHUB_OUTPUT
+          else
+            git rebase --abort || true
+            echo "result=conflict" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push rebased branch and create release tag
+        if: steps.check.outputs.needs_update == 'true' && steps.rebase.outputs.result == 'success'
+        run: |
+          CUSTOM_TAG="${{ steps.check.outputs.custom_tag }}"
+          git push origin HEAD:shasoosh/fix-external-subtitles --force
+          git tag "$CUSTOM_TAG"
+          git push origin "$CUSTOM_TAG"
+          echo "✅ Pushed $CUSTOM_TAG — build-custom-release workflow will now trigger."
+
+      - name: Open issue on rebase conflict
+        if: steps.check.outputs.needs_update == 'true' && steps.rebase.outputs.result == 'conflict'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const upstreamTag = '${{ steps.check.outputs.upstream_tag }}';
+            const customTag   = '${{ steps.check.outputs.custom_tag }}';
+
+            // Avoid duplicate issues
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              state: 'open',
+            });
+            if (existing.data.some(i => i.title.includes(upstreamTag))) {
+              console.log('Issue already open — skipping.');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `⚠️ Manual rebase needed: upstream released ${upstreamTag}`,
+              body: [
+                `Upstream released **${upstreamTag}** but the automatic rebase of`,
+                `\`shasoosh/fix-external-subtitles\` failed due to conflicts in the subtitle fix files.`,
+                '',
+                '**Manual steps (run in your local clone):**',
+                '```bash',
+                'cd c:\\Developer\\plezy',
+                'git fetch upstream --tags',
+                'git checkout shasoosh/fix-external-subtitles',
+                `git rebase --onto ${upstreamTag} $(git merge-base HEAD upstream/main)`,
+                '# resolve conflicts, then:',
+                'git push origin shasoosh/fix-external-subtitles --force',
+                `git tag ${customTag}`,
+                `git push origin ${customTag}`,
+                '```',
+              ].join('\n'),
+            });
