@@ -738,6 +738,18 @@ class TrackSelectionService {
           ? info.subtitleTracks.where((track) => track.selected).firstOrNull
           : null;
 
+      appLogger.d(
+        '[SubtitleSel] MPV tracks (${availableTracks.length}): '
+        '${availableTracks.map((t) => '"${t.title ?? t.language ?? t.id}" ext=${t.isExternal} uri=${t.uri}').join(' | ')}',
+      );
+      appLogger.d(
+        '[SubtitleSel] Plex tracks (${info.subtitleTracks.length}): '
+        '${info.subtitleTracks.map((t) => '"${t.title ?? t.languageCode ?? t.id}" ext=${t.isExternal} selected=${t.selected} key=${t.key}').join(' | ')}',
+      );
+      appLogger.d(
+        '[SubtitleSel] Server-selected Plex track: ${serverSelectedTrack == null ? "none" : '"${serverSelectedTrack.title ?? serverSelectedTrack.languageCode}" ext=${serverSelectedTrack.isExternal} key=${serverSelectedTrack.key}'}',
+      );
+
       if (serverSelectedTrack != null) {
         final matchedMpvTrack = findMpvTrackForPlexSubtitle(
           serverSelectedTrack,
@@ -745,7 +757,20 @@ class TrackSelectionService {
           allPlexTracks: info.subtitleTracks,
         );
 
+        appLogger.d(
+          '[SubtitleSel] URI match result: ${matchedMpvTrack == null ? "no match" : '"${matchedMpvTrack.title ?? matchedMpvTrack.language ?? matchedMpvTrack.id}" ext=${matchedMpvTrack.isExternal}'}',
+        );
+
         if (matchedMpvTrack != null) {
+          // For Plex: always prefer an external sidecar track when one is
+          // loaded, even if Plex selected an embedded track.
+          if (metadata.backend == MediaBackend.plex && !matchedMpvTrack.isExternal) {
+            final externalMpvTrack = availableTracks.where((t) => t.isExternal).firstOrNull;
+            if (externalMpvTrack != null) {
+              appLogger.d('[SubtitleSel] Override: using external MPV track: "${externalMpvTrack.title ?? externalMpvTrack.language ?? externalMpvTrack.id}"');
+              return TrackSelectionResult(externalMpvTrack, TrackSelectionPriority.serverSelected);
+            }
+          }
           return TrackSelectionResult(matchedMpvTrack, TrackSelectionPriority.serverSelected);
         }
       } else if (metadata.backend == MediaBackend.jellyfin) {

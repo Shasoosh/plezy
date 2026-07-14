@@ -1615,7 +1615,13 @@ class ExoPlayerCore(private val activity: Activity) : Player.Listener {
     }
 
     // Process subtitle tracks (embedded + side-loaded external)
-    Log.d(TAG, "emitTrackList: found ${textGroups.size} subtitle track groups")
+    Log.d(TAG, "emitTrackList: found ${textGroups.size} subtitle track groups, ${externalSubtitles.size} external configs")
+    // MergingMediaSource always places container text tracks first, then
+    // SingleSampleMediaSource tracks from SubtitleConfiguration. Derive the
+    // external range by count rather than checking format.id — the latter is
+    // unreliable when the format ID is not propagated (e.g. some HLS/DASH sources
+    // override it before onTracksChanged fires).
+    val containerSubtitleCount = maxOf(0, textGroups.size - externalSubtitles.size)
     textGroups.forEachIndexed { groupIndex, group ->
       val trackGroup = group.mediaTrackGroup
       val format = trackGroup.getFormat(0)
@@ -1623,12 +1629,11 @@ class ExoPlayerCore(private val activity: Activity) : Player.Listener {
       subtitleTrackGroupMap[trackId] = trackGroup
       val isSelected = group.isSelected
 
-      // Detect external (side-loaded) subtitle by the ID prefix set in open()
-      val isExternal = format.id?.startsWith("external_") == true
-      val externalIndex = if (isExternal) format.id?.removePrefix("external_")?.toIntOrNull() else null
-      val externalUri = externalIndex?.takeIf { it in externalSubtitleUris.indices }?.let { externalSubtitleUris[it] }
+      val externalIndex = if (groupIndex >= containerSubtitleCount) groupIndex - containerSubtitleCount else null
+      val isExternal = externalIndex != null
+      val externalUri = externalIndex?.let { externalSubtitleUris.getOrNull(it) }
 
-      Log.d(TAG, "Subtitle track $groupIndex: codec=${format.codecs}, lang=${format.language}, selected=$isSelected, external=$isExternal")
+      Log.d(TAG, "Subtitle track $groupIndex: codec=${format.codecs}, lang=${format.language}, selected=$isSelected, external=$isExternal (containerCount=$containerSubtitleCount)")
 
       val track = mutableMapOf<String, Any?>(
         "type" to "sub",

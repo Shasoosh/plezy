@@ -1,0 +1,91 @@
+name: Build Custom Release
+
+on:
+  push:
+    tags:
+      - '*-subtitle-fix'
+      - '*-shasoosh*'
+
+env:
+  GIT_COMMIT_DART_DEFINE: --dart-define=GIT_COMMIT=${{ github.sha }}
+  DONATIONS_DART_DEFINE: --dart-define=ENABLE_DONATIONS=true
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: "3.44.0"
+          cache: true
+          pub-cache: false
+
+      - name: Cache Pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-pub-v2-${{ hashFiles('pubspec.yaml', 'pubspec.lock') }}
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile --no-example
+
+      - name: Generate self-signed keystore
+        run: |
+          keytool -genkey -v \
+            -keystore android/app/upload-keystore.jks \
+            -alias key \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Shasoosh, O=Shasoosh, C=US"
+          cat > android/key.properties << 'EOF'
+          storePassword=android
+          keyPassword=android
+          keyAlias=key
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Build APKs (release)
+        run: flutter build apk --release --split-per-abi --dart-define=ENABLE_UPDATE_CHECK=true ${{ env.GIT_COMMIT_DART_DEFINE }} ${{ env.DONATIONS_DART_DEFINE }}
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f android/app/upload-keystore.jks android/key.properties
+
+      - name: Package APKs
+        run: |
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk plezy-android-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk plezy-android-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk plezy-android-x86_64.apk
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            plezy-android-arm64-v8a.apk
+            plezy-android-armeabi-v7a.apk
+            plezy-android-x86_64.apk
