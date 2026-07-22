@@ -25,8 +25,12 @@ internal object SubtitleViewLayout {
     val base = fit(containerWidth, containerHeight, videoAspect)
     return when {
       zoomScale < 0.999f -> scale(base, zoomScale)
-      zoomScale > 1.001f -> SubtitleViewDimensions(containerWidth, containerHeight)
-      else -> base
+      // At normal or zoomed-in zoom, the SubtitleView should always fill the
+      // full screen container. For 16:9 content the video already fills the
+      // screen so this is a no-op, but for widescreen content (e.g. 2.39:1)
+      // the video is letterboxed and the old video-rect size placed subtitles
+      // inside the picture and made the font smaller than configured.
+      else -> SubtitleViewDimensions(containerWidth, containerHeight)
     }
   }
 
