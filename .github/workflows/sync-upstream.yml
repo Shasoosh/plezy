@@ -45,9 +45,11 @@ jobs:
           echo "upstream_tag=$LATEST"   >> $GITHUB_OUTPUT
           echo "custom_tag=$CUSTOM_TAG" >> $GITHUB_OUTPUT
 
-          if git rev-parse "$CUSTOM_TAG" >/dev/null 2>&1; then
+          # Already synced if ANY tag starting with <version>-subtitle-fix exists
+          # (covers the base tag and any incremental patch tags like .1, .2, …)
+          if git tag -l "${LATEST}-subtitle-fix*" | grep -q .; then
             echo "needs_update=false" >> $GITHUB_OUTPUT
-            echo "Already synced to $LATEST — nothing to do."
+            echo "Already have a subtitle-fix tag for $LATEST — nothing to do."
           else
             echo "needs_update=true" >> $GITHUB_OUTPUT
             echo "New upstream release: $LATEST → will create $CUSTOM_TAG"
