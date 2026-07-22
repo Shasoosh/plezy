@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - '*-subtitle-fix'
+      - '*-subtitle-fix.*'   # incremental patch tags, e.g. 2.9.1-subtitle-fix.1
       - '*-shasoosh*'
 
 env:
