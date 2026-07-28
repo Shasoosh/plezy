@@ -5,7 +5,7 @@ name: Auto-sync with upstream
 #   2. Force-pushes the branch
 #   3. Creates <version>-subtitle-fix tag → triggers the build workflow
 #
-# If rebase conflicts, opens a GitHub issue with manual instructions instead.
+# If rebase conflicts, writes manual instructions to the job summary and fails (triggering an e-mail notification).
 
 on:
   schedule:
@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: write
 
     steps:
       - uses: actions/checkout@v4
@@ -85,43 +84,30 @@ jobs:
           git push origin "$CUSTOM_TAG"
           echo "✅ Pushed $CUSTOM_TAG — build-custom-release workflow will now trigger."
 
-      - name: Open issue on rebase conflict
+      - name: Report rebase conflict via workflow summary
         if: steps.check.outputs.needs_update == 'true' && steps.rebase.outputs.result == 'conflict'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const upstreamTag = '${{ steps.check.outputs.upstream_tag }}';
-            const customTag   = '${{ steps.check.outputs.custom_tag }}';
+        run: |
+          UPSTREAM_TAG="${{ steps.check.outputs.upstream_tag }}"
+          CUSTOM_TAG="${{ steps.check.outputs.custom_tag }}"
 
-            // Avoid duplicate issues
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              state: 'open',
-            });
-            if (existing.data.some(i => i.title.includes(upstreamTag))) {
-              console.log('Issue already open — skipping.');
-              return;
-            }
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## ⚠️ Manual rebase needed: upstream released ${UPSTREAM_TAG}
 
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              title: `⚠️ Manual rebase needed: upstream released ${upstreamTag}`,
-              body: [
-                `Upstream released **${upstreamTag}** but the automatic rebase of`,
-                `\`shasoosh/fix-external-subtitles\` failed due to conflicts in the subtitle fix files.`,
-                '',
-                '**Manual steps (run in your local clone):**',
-                '```bash',
-                'cd c:\\Developer\\plezy',
-                'git fetch upstream --tags',
-                'git checkout shasoosh/fix-external-subtitles',
-                `git rebase --onto ${upstreamTag} $(git merge-base HEAD upstream/main)`,
-                '# resolve conflicts, then:',
-                'git push origin shasoosh/fix-external-subtitles --force',
-                `git tag ${customTag}`,
-                `git push origin ${customTag}`,
-                '```',
-              ].join('\n'),
-            });
+          Upstream released **${UPSTREAM_TAG}** but the automatic rebase of
+          \`shasoosh/fix-external-subtitles\` failed due to conflicts in the subtitle fix files.
+
+          **Manual steps (run in your local clone):**
+          \`\`\`bash
+          cd /path/to/plezy
+          git fetch upstream --tags
+          git checkout shasoosh/fix-external-subtitles
+          git rebase --onto ${UPSTREAM_TAG} \$(git merge-base HEAD upstream/main)
+          # resolve conflicts, then:
+          git push origin shasoosh/fix-external-subtitles --force
+          git tag ${CUSTOM_TAG}
+          git push origin ${CUSTOM_TAG}
+          \`\`\`
+          EOF
+
+          echo "::error::Rebase conflict on upstream ${UPSTREAM_TAG} — manual intervention required. See the job summary for instructions."
+          exit 1
