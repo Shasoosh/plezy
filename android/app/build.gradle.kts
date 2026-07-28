@@ -414,8 +414,10 @@ android {
     // Enforce the app-owned minSdk boundary without auditing upstream AndroidX.
     checkDependencies = false
     checkOnly += setOf("NewApi")
-    // Do not let a lint-tool crash (RuntimeException in LintDriver) abort
-    // the release build; lint issues are reported but never block assembly.
+    // The bundled lint tool crashes on some Kotlin UAST patterns; prevent it
+    // from blocking assembleRelease by decoupling lint from the release build.
+    // Run `./gradlew lintRelease` separately when an explicit lint check is needed.
+    checkReleaseBuilds = false
     abortOnError = false
   }
 }
