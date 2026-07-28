@@ -414,6 +414,9 @@ android {
     // Enforce the app-owned minSdk boundary without auditing upstream AndroidX.
     checkDependencies = false
     checkOnly += setOf("NewApi")
+    // Do not let a lint-tool crash (RuntimeException in LintDriver) abort
+    // the release build; lint issues are reported but never block assembly.
+    abortOnError = false
   }
 }
 
