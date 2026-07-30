@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      workflows: write   # needed to push commits that add/modify .github/workflows/ files
 
     steps:
       - uses: actions/checkout@v4
