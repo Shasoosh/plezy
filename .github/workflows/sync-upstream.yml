@@ -19,6 +19,13 @@ jobs:
       contents: write
 
     steps:
+      - name: Verify WORKFLOW_PAT secret is present
+        run: |
+          if [ -z "${{ secrets.WORKFLOW_PAT }}" ]; then
+            echo "::error::WORKFLOW_PAT secret is missing. Create a PAT with 'Contents: Read & Write' and 'Workflows: Read & Write' scopes and save it as a repository secret named WORKFLOW_PAT."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -31,6 +38,9 @@ jobs:
         run: |
           git config user.name "Shasoosh"
           git config user.email "shasoosh@gmail.com"
+          # Wire the PAT into the remote URL so every subsequent push in this
+          # job uses it (belt-and-suspenders alongside the checkout token).
+          git remote set-url origin "https://x-access-token:${{ secrets.WORKFLOW_PAT }}@github.com/${{ github.repository }}.git"
 
       - name: Fetch upstream tags and fix branch
         run: |
