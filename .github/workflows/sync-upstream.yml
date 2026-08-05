@@ -2,10 +2,11 @@ name: Auto-sync with upstream
 
 # Runs daily. When upstream releases a new version:
 #   1. Rebases shasoosh/fix-external-subtitles onto the new tag
-#   2. Force-pushes the branch
-#   3. Creates <version>-subtitle-fix tag -> triggers the build workflow
+#   2. Re-runs codegen so generated .g.dart files stay in sync
+#   3. Force-pushes the branch
+#   4. Creates <version>-subtitle-fix tag -> triggers the build workflow
 #
-# If rebase conflicts, writes manual instructions to the job summary and fails (triggering an e-mail notification).
+# If rebase conflicts, writes manual instructions to the job summary and fails.
 
 on:
   schedule:
@@ -29,17 +30,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # A PAT with the "workflow" scope is required to push commits that
-          # add or modify files under .github/workflows/ -- the default
-          # GITHUB_TOKEN cannot do this regardless of its permissions block.
           token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Configure git
         run: |
           git config user.name "Shasoosh"
           git config user.email "shasoosh@gmail.com"
-          # Wire the PAT into the remote URL so every subsequent push in this
-          # job uses it (belt-and-suspenders alongside the checkout token).
           git remote set-url origin "https://x-access-token:${{ secrets.WORKFLOW_PAT }}@github.com/${{ github.repository }}.git"
 
       - name: Fetch upstream tags and fix branch
@@ -53,10 +49,8 @@ jobs:
         run: |
           LATEST=$(git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           CUSTOM_TAG="${LATEST}-subtitle-fix"
-
           echo "upstream_tag=$LATEST"   >> $GITHUB_OUTPUT
           echo "custom_tag=$CUSTOM_TAG" >> $GITHUB_OUTPUT
-
           if git tag -l "${LATEST}-subtitle-fix*" | grep -q .; then
             echo "needs_update=false" >> $GITHUB_OUTPUT
             echo "Already have a subtitle-fix tag for $LATEST -- nothing to do."
@@ -70,18 +64,48 @@ jobs:
         id: rebase
         run: |
           UPSTREAM_TAG="${{ steps.check.outputs.upstream_tag }}"
-
           git checkout -b work origin/shasoosh/fix-external-subtitles
-
           OLD_BASE=$(git merge-base HEAD upstream/main)
           echo "Old base commit: $OLD_BASE  ($(git describe --tags $OLD_BASE 2>/dev/null || echo 'no tag'))"
           echo "Rebasing onto: $UPSTREAM_TAG"
-
           if git rebase --onto "$UPSTREAM_TAG" "$OLD_BASE" HEAD; then
             echo "result=success" >> $GITHUB_OUTPUT
           else
             git rebase --abort || true
             echo "result=conflict" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Flutter for codegen
+        if: steps.check.outputs.needs_update == 'true' && steps.rebase.outputs.result == 'success'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: "3.44.0"
+          cache: true
+          pub-cache: false
+
+      - name: Re-run codegen and commit if generated files changed
+        if: steps.check.outputs.needs_update == 'true' && steps.rebase.outputs.result == 'success'
+        run: |
+          flutter pub get --no-example
+          bash scripts/codegen.sh
+          # Stage any new or modified generated files
+          changed=$(
+            { git diff --name-only -- lib server/relay_protocol_gen.go
+              git ls-files --others --exclude-standard \
+                --exclude='*' \
+                ':(glob)lib/**/*.g.dart' \
+                ':(glob)lib/**/*.freezed.dart' \
+                server/relay_protocol_gen.go
+            } | grep -E '(\.(g|freezed)\.dart|relay_protocol_gen\.go)$' || true
+          )
+          if [ -n "$changed" ]; then
+            echo "Committing regenerated files:"
+            echo "$changed"
+            git add lib server/relay_protocol_gen.go 2>/dev/null || git add lib
+            git commit --trailer "Co-authored-by: Cursor <cursoragent@cursor.com>" -m "chore: regenerate Dart code after rebase onto ${{ steps.check.outputs.upstream_tag }}"
+          else
+            echo "Generated files are already up to date."
           fi
 
       - name: Push rebased branch and create release tag
@@ -98,15 +122,11 @@ jobs:
         run: |
           UPSTREAM_TAG="${{ steps.check.outputs.upstream_tag }}"
           CUSTOM_TAG="${{ steps.check.outputs.custom_tag }}"
-
-          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          cat >> "$GITHUB_STEP_SUMMARY" << SUMMARY
           ## Manual rebase needed: upstream released ${UPSTREAM_TAG}
-
           Upstream released **${UPSTREAM_TAG}** but the automatic rebase of
-          shasoosh/fix-external-subtitles failed due to conflicts in the subtitle fix files.
-
-          Manual steps (run in your local clone):
-
+          shasoosh/fix-external-subtitles failed due to conflicts.
+          Manual steps:
           git fetch upstream --tags
           git checkout shasoosh/fix-external-subtitles
           git rebase --onto ${UPSTREAM_TAG} $(git merge-base HEAD upstream/main)
@@ -114,7 +134,6 @@ jobs:
           git push origin shasoosh/fix-external-subtitles --force
           git tag ${CUSTOM_TAG}
           git push origin ${CUSTOM_TAG}
-          EOF
-
-          echo "::error::Rebase conflict on upstream ${UPSTREAM_TAG} -- manual intervention required. See the job summary for instructions."
+          SUMMARY
+          echo "::error::Rebase conflict on upstream ${UPSTREAM_TAG} -- manual intervention required. See the job summary."
           exit 1
