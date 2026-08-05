@@ -54,6 +54,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get --enforce-lockfile --no-example
 
+      - name: Run codegen
+        run: bash scripts/codegen.sh
+
       - name: Restore keystore from secret
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
