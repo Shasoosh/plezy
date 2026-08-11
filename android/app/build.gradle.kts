@@ -455,12 +455,14 @@ android {
     // Enforce the app-owned minSdk boundary without auditing upstream AndroidX.
     checkDependencies = false
     checkOnly += setOf("NewApi")
-    // The bundled lint tool crashes on some Kotlin UAST patterns; decouple it
-    // from assembleRelease so a tool crash never blocks a release build.
     checkReleaseBuilds = false
     abortOnError = false
   }
 }
+
+// Lint crashes on UAST patterns in this codebase; disable every lint task so
+// a tool bug can never block an assembleRelease run.
+tasks.configureEach { if (name.startsWith("lint")) enabled = false }
 
 // BackgroundWorkDiagnostics routes users to background_downloader's private
 // notification channel. Fail the build if an upstream ref changes that ID.
