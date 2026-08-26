@@ -52,7 +52,10 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Install dependencies
-        run: flutter pub get --enforce-lockfile --no-example
+        run: flutter pub get --no-example
+
+      - name: Run codegen
+        run: bash scripts/codegen.sh
 
       - name: Restore keystore from secret
         run: |
