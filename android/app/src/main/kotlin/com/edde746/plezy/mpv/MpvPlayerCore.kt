@@ -492,6 +492,20 @@ class MpvPlayerCore private constructor(
             // the access token in its argv. mpv decides whether to load the
             // builtin script during mpv_initialize, hence an option here.
             setOption("ytdl", "no")
+            // Use VSFilter-compatible BiDi base direction (LTR) for converted
+            // subtitle tracks (SRT/VTT/etc. converted to ASS by FFmpeg).
+            // Without this, mpv sets Encoding=-1 on every style, which makes
+            // FriBidi auto-detect paragraph direction. For visual-order Hebrew/
+            // Arabic SRT files (the common Israeli/Arabic subtitle convention)
+            // the first strong RTL character causes the whole line — including
+            // leading punctuation — to be treated as RTL, pushing sentence-
+            // ending periods and commas to the wrong (right) side of the line.
+            // This option must be a startup setOption (not a runtime setProperty)
+            // because sub-vsfilter-bidi-compat lacks UPDATE_SUB_HARD and mpv's
+            // configure_ass only skips writing Encoding=-1 when the flag is set;
+            // it does not reset an already-written -1, so runtime changes have
+            // no effect.
+            setOption("sub-vsfilter-bidi-compat", "yes")
           }
           if (demuxerBudget != null) {
             Log.d(
